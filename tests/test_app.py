@@ -233,6 +233,7 @@ class TestLLMFactory:
         assert "openai"    in providers
         assert "anthropic" in providers
         assert "google"    in providers
+        assert "ollama"    in providers
 
     def test_unknown_provider_raises(self):
         from src.llm.llm_client import LLMFactory

@@ -40,7 +40,7 @@ body{font-family:var(--font);background:var(--bg0);color:var(--text);
 .provider-btn.active{border-color:var(--accent);background:#1d3461}
 .provider-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .dot-openai{background:#10b981}.dot-anthropic{background:#f59e0b}
-.dot-google{background:#3b82f6}
+.dot-google{background:#3b82f6}.dot-ollama{background:#f97316}
 
 /* Mission filter */
 #mission-input{margin:0 12px 8px;padding:7px 10px;background:var(--bg2);
@@ -164,7 +164,7 @@ details[open] .sources summary::before{transform:rotate(90deg)}
   </div>
 
   <div class="section-label">LLM Provider</div>
-  <div class="provider-select">
+  <div class="provider-select" id="provider-select">
     <button class="provider-btn active" data-provider="anthropic" onclick="setProvider(this)">
       <span class="provider-dot dot-anthropic"></span>Claude (Anthropic)
     </button>
@@ -241,12 +241,19 @@ details[open] .sources summary::before{transform:rotate(90deg)}
 let provider  = "anthropic";
 let sessionId = null;
 const API     = "";          // same origin; change if backend is on different port
+const PROVIDER_LABELS = {
+  anthropic: {label: "Claude (Anthropic)", dot: "dot-anthropic"},
+  openai: {label: "GPT-4o (OpenAI)", dot: "dot-openai"},
+  google: {label: "Gemini (Google)", dot: "dot-google"},
+  ollama: {label: "Ollama", dot: "dot-ollama"},
+};
 
 // ── Init ─────────────────────────────────────────────────────────────────
 (async function init() {
   try {
     const r = await fetch(`${API}/api/health`);
     const d = await r.json();
+    renderProviders(d.available_providers || []);
     document.getElementById("status-dot").style.background =
       d.pinecone_connected ? "var(--green)" : "var(--amber)";
     document.getElementById("status-text").textContent =
@@ -262,6 +269,28 @@ const API     = "";          // same origin; change if backend is on different p
 })();
 
 // ── Provider ─────────────────────────────────────────────────────────────
+function renderProviders(availableProviders) {
+  const providerSelect = document.getElementById("provider-select");
+  const fallback = ["anthropic", "openai", "google", "ollama"];
+  const available = availableProviders.length ? availableProviders : fallback;
+  const orderedProviders = fallback.filter(name => available.includes(name));
+
+  providerSelect.innerHTML = orderedProviders.map((name) => {
+    const meta = PROVIDER_LABELS[name] || {label: name, dot: "dot-openai"};
+    const activeClass = provider === name ? " active" : "";
+    return `
+      <button class="provider-btn${activeClass}" data-provider="${name}" onclick="setProvider(this)">
+        <span class="provider-dot ${meta.dot}"></span>${meta.label}
+      </button>`;
+  }).join("");
+
+  if (!orderedProviders.includes(provider) && orderedProviders.length) {
+    provider = orderedProviders[0];
+    const firstButton = providerSelect.querySelector(".provider-btn");
+    if (firstButton) firstButton.classList.add("active");
+  }
+}
+
 function setProvider(btn) {
   document.querySelectorAll(".provider-btn").forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
@@ -348,7 +377,7 @@ function appendBotMsg(text, sources, prov) {
   const div  = document.createElement("div");
   div.className = "msg";
 
-  const provIcons = {anthropic:"🟡", openai:"🟢", google:"🔵"};
+  const provIcons = {anthropic:"🟡", openai:"🟢", google:"🔵", ollama:"🟠"};
   const icon = provIcons[prov] || "🤖";
 
   let sourceHtml = "";

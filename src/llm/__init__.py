@@ -1,4 +1,4 @@
-from .llm_client import LLMFactory, BaseLLMClient, OpenAIClient, AnthropicClient, GoogleClient
+from .llm_client import LLMFactory, BaseLLMClient, OpenAIClient, AnthropicClient, GoogleClient, OllamaClient
 
 __all__ = [
     "LLMFactory",
@@ -6,4 +6,5 @@ __all__ = [
     "OpenAIClient",
     "AnthropicClient",
     "GoogleClient",
+    "OllamaClient",
 ]

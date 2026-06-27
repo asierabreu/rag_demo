@@ -1,6 +1,6 @@
 """
 Multi-provider LLM client.
-Supports OpenAI (GPT-4o), Anthropic (Claude), and Google (Gemini).
+Supports OpenAI (GPT-4o), Anthropic (Claude), Google (Gemini), and Ollama.
 Uses a factory pattern so the rest of the codebase is provider-agnostic.
 """
 from __future__ import annotations
@@ -159,13 +159,13 @@ class GoogleClient(BaseLLMClient):
 # ── Meta Ollama ──────────────────────────────────────────────────────────
 
 class OllamaClient(BaseLLMClient):
-    """Meta Ollama models via the ollama SDK."""
+    """Ollama models via the ollama SDK."""
 
     def __init__(self, model: str = "llama3.1", **kwargs: Any) -> None:
         super().__init__(model, **kwargs)
-        import google.generativeai as genai
-        genai.configure(api_key=os.getenv("OLLAMA_API_KEY"))
-        self._genai = genai
+        import ollama
+
+        self._client = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
     @property
     def provider_name(self) -> str:
@@ -177,23 +177,23 @@ class OllamaClient(BaseLLMClient):
         user_message: str,
         history: list[dict[str, str]] | None = None,
     ) -> str:
-        model = self._genai.GenerativeModel(
-            model_name=self.model,
-            system_instruction=system_prompt,
-            generation_config=self._genai.types.GenerationConfig(
-                max_output_tokens=self.max_tokens,
-                temperature=self.temperature,
-            ),
-        )
-        # Convert OpenAI-style history to Ollama format
-        ollama_history = []
+        messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
         if history:
-            for msg in history:
-                role = "user" if msg["role"] == "user" else "model"
-                ollama_history.append({"role": role, "parts": [msg["content"]]})
+            messages.extend(history)
+        messages.append({"role": "user", "content": user_message})
 
-        chat_session = model.start_chat(history=ollama_history)
-        return chat_session.send_message(user_message).text
+        resp = self._client.chat(
+            model=self.model,
+            messages=messages,
+            options={
+                "temperature": self.temperature,
+                "num_predict": self.max_tokens,
+            },
+        )
+
+        if isinstance(resp, dict):
+            return resp["message"]["content"]
+        return resp.message.content
 
 
 # ── Factory ────────────────────────────────────────────────────────────────
