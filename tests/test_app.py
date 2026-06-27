@@ -10,6 +10,8 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
+import types
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -258,6 +260,34 @@ class TestLLMFactory:
             assert client.provider_name == "openai"
 
 
+class TestEmbedder:
+
+    def test_sentence_transformers_provider(self):
+        fake_module = types.ModuleType("sentence_transformers")
+
+        class FakeSentenceTransformer:
+            def __init__(self, model_name: str) -> None:
+                self.model_name = model_name
+
+            def get_sentence_embedding_dimension(self) -> int:
+                return 384
+
+            def encode(self, texts, normalize_embeddings=True, batch_size=None):
+                if isinstance(texts, str):
+                    return [0.1, 0.2, 0.3]
+                return [[0.1, 0.2, 0.3] for _ in texts]
+
+        fake_module.SentenceTransformer = FakeSentenceTransformer
+
+        with patch.dict(sys.modules, {"sentence_transformers": fake_module}):
+            from src.embeddings.embedder import Embedder
+
+            embedder = Embedder(provider="sentence-transformers", model="all-MiniLM-L6-v2")
+            assert embedder.dimension == 384
+            assert len(embedder.embed_text("hello world")) == 3
+            assert len(embedder.embed_batch(["a", "b"])) == 2
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Prompt template tests
 # ══════════════════════════════════════════════════════════════════════════
@@ -381,6 +411,25 @@ class TestIngestEndpoint:
             files={"file": ("doc.docx", b"data", "application/octet-stream")},
         )
         assert resp.status_code == 400
+
+    def test_ingest_quota_error_suggests_alternatives(self, client):
+        with patch(
+            "src.embeddings.embedder.Embedder.embed_batch",
+            side_effect=Exception(
+                "Error code: 429 - {'error': {'message': 'You exceeded your current quota', 'type': 'insufficient_quota'}}"
+            ),
+        ):
+            resp = client.post(
+                "/api/ingest",
+                data={"mission_name": "PLATO"},
+                files={"file": ("systems.csv", b"component,status\nMCS,operational\n", "text/csv")},
+            )
+
+        assert resp.status_code == 429
+        detail = resp.json()["detail"]
+        assert "Anthropic" in detail
+        assert "Google Gemini" in detail
+        assert "Ollama" in detail
 
 
 class TestDeleteEndpoints:

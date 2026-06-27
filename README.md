@@ -37,7 +37,7 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env and fill in your keys:
-#   OPENAI_API_KEY    — for embeddings (always required) + GPT-4o
+#   OPENAI_API_KEY    — for OpenAI embeddings + GPT-4o
 #   ANTHROPIC_API_KEY — for Claude
 #   GOOGLE_API_KEY    — for Gemini
 #   PINECONE_API_KEY  — for the vector store
@@ -52,6 +52,39 @@ python main.py
 
 Open your browser at `http://localhost:8000` to access the chat UI.  
 Interactive API docs are at `http://localhost:8000/docs`.
+
+---
+
+## Typical working workflow
+
+1. Start the app with `python main.py` and open the web UI.
+2. Upload a PDF or CSV and assign a mission name such as `PLATO` or `Gaia`.
+3. The backend loads the file, splits it into chunks, embeds those chunks, and stores them in Pinecone under the configured namespace.
+4. Ask questions in the chat UI and optionally filter by mission to narrow retrieval.
+5. If you change the embedding model or provider, re-index the documents before querying again.
+
+---
+
+## How document indexing works
+
+Document indexing happens in a fixed pipeline:
+
+1. `DocumentLoader` reads the uploaded file.
+  - PDF files are loaded page by page.
+  - CSV files are loaded row by row.
+  - Each item keeps metadata such as `document_name`, `mission_name`, and `page` or `row`.
+2. `DocumentChunker` splits each page or row into overlapping text chunks.
+  - Chunk size and overlap come from `config.yaml`.
+  - Each chunk gets a deterministic ID based on the document name and position.
+3. `Embedder` converts each chunk into a vector.
+  - OpenAI is the default embedding backend.
+  - Local `sentence-transformers` models are also supported if configured.
+4. `VectorStore` upserts the chunk text, metadata, and embedding into Pinecone.
+  - Chunks are stored in the configured namespace.
+  - The Pinecone index dimension must match the embedding dimension.
+5. During question answering, the query is embedded the same way, then Pinecone returns the most similar chunks as context for the LLM.
+
+This means indexing is not just file storage: it is a transformation from raw documents into searchable vectors that can be retrieved later by semantic similarity.
 
 ---
 
@@ -188,6 +221,6 @@ No API keys are required to run the test suite.
 ## Production notes
 
 - **Session store** — conversation history is held in-memory (`dict`). For multi-worker or persistent deployments replace `_sessions` in `routes.py` with a Redis-backed store.
-- **Embeddings** — only OpenAI is wired for embeddings. The model and dimension are configured in `config.yaml`; changing model requires re-indexing all documents.
+- **Embeddings** — OpenAI is the default embedding backend, but you can switch to local `sentence-transformers` models in `config.yaml` to avoid OpenAI quota limits. Changing embedding model or provider requires re-indexing all documents.
 - **Pinecone tier** — the default `ServerlessSpec` targets AWS `us-east-1`. Adjust in `vector_store.py` to match your Pinecone plan/region.
 - **Auth** — no authentication is implemented. Add FastAPI `Depends` middleware or an API-key header before exposing to a network.

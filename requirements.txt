@@ -15,6 +15,7 @@ openpyxl>=3.1.0           # CSV/Excel support via pandas
 
 # Embeddings & chunking
 openai>=1.40.0
+sentence-transformers>=3.0.0
 langchain-text-splitters>=0.2.0
 tiktoken>=0.7.0
 

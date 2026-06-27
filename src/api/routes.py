@@ -78,6 +78,20 @@ _sessions: dict[str, list[dict[str, str]]] = {}
 _MAX_HISTORY = 20   # messages kept per session
 
 
+def _format_ingest_error(exc: Exception) -> tuple[int, str]:
+    message = str(exc)
+    if "insufficient_quota" in message or "Error code: 429" in message:
+        return (
+            429,
+            "OpenAI embedding quota was exceeded during ingestion. "
+            "This app currently uses OpenAI for document embeddings, so chat provider "
+            "switches like Anthropic, Google Gemini, or Ollama do not affect uploads. "
+            "To avoid this error, add OpenAI billing/quota or switch the embeddings "
+            "backend to a local provider such as Ollama embeddings and re-index the data.",
+        )
+    return 500, message
+
+
 # ── App factory ────────────────────────────────────────────────────────────
 
 def create_app(config: dict[str, Any]) -> FastAPI:
@@ -99,7 +113,10 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     )
 
     # ── Shared components ─────────────────────────────────────────────────
-    embedder = Embedder(model=config["embeddings"]["model"])
+    embedder = Embedder(
+        provider=config["embeddings"].get("provider", "openai"),
+        model=config["embeddings"]["model"],
+    )
     vector_store = VectorStore(
         index_name=config["pinecone"]["index_name"],
         dimension=embedder.dimension,
@@ -130,9 +147,16 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     async def serve_ui():
         ui = Path("static/index.html")
         if ui.exists():
-            return FileResponse(ui)
+            return HTMLResponse(
+                ui.read_text(encoding="utf-8"),
+                headers={
+                    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                },
+            )
         return HTMLResponse(
-            "<h2>ESA Ground Segment RAG</h2>"
+            "<h2>ESA Ground Segment Documentation RAG</h2>"
             "<p>Frontend not found. Place <code>static/index.html</code> "
             "or use the <a href='/docs'>API docs</a>.</p>"
         )
@@ -249,7 +273,8 @@ def create_app(config: dict[str, Any]) -> FastAPI:
             upserted  = vector_store.upsert(chunks, embeddings, namespace=ns)
         except Exception as exc:
             logger.error(f"Ingestion failed: {exc}")
-            raise HTTPException(status_code=500, detail=str(exc))
+            status_code, detail = _format_ingest_error(exc)
+            raise HTTPException(status_code=status_code, detail=detail)
 
         logger.info(
             f"Ingested '{file.filename}': "

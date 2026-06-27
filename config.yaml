@@ -5,8 +5,12 @@ pinecone:
   namespace: esa-missions
 
 embeddings:
-  provider: openai
-  model: text-embedding-3-small
+  # OpenAI embedding setup:
+  #provider: openai
+  #model: text-embedding-3-small
+  # Alternative local embedding setup:
+  provider: sentence-transformers
+  model: all-MiniLM-L6-v2
 
 chunking:
   chunk_size: 1000

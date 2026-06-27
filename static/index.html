@@ -174,6 +174,9 @@ details[open] .sources summary::before{transform:rotate(90deg)}
     <button class="provider-btn" data-provider="google" onclick="setProvider(this)">
       <span class="provider-dot dot-google"></span>Gemini (Google)
     </button>
+    <button class="provider-btn" data-provider="ollama" onclick="setProvider(this)">
+      <span class="provider-dot dot-ollama"></span>Ollama
+    </button>
   </div>
 
   <div class="section-label">Mission Filter</div>
@@ -341,8 +344,18 @@ async function sendMessage() {
       }),
     });
     if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || resp.statusText);
+      const contentType = resp.headers.get("content-type") || "";
+      let message = resp.statusText || "Request failed";
+
+      if (contentType.includes("application/json")) {
+        const err = await resp.json();
+        message = err.detail || err.message || message;
+      } else {
+        const text = (await resp.text()).trim();
+        if (text) message = text;
+      }
+
+      throw new Error(message);
     }
     const data = await resp.json();
     sessionId  = data.session_id;
