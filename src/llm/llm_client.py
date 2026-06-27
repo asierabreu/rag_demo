@@ -212,7 +212,7 @@ class LLMFactory:
         "openai":    "gpt-4o",
         "anthropic": "claude-sonnet-4-6",
         "google":    "gemini-1.5-pro",
-        "ollama":    "llama3.1",
+        "ollama":    "llama3.2:1b",
     }
 
     @classmethod

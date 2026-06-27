@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>ESA Ground Segment · RAG Assistant</title>
+<title>ESA Ground Segment Documents · RAG Assistant</title>
 <style>
 /* ── Reset & variables ──────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -252,7 +252,7 @@ const PROVIDER_LABELS = {
 };
 
 // ── Init ─────────────────────────────────────────────────────────────────
-(async function init() {
+async function init() {
   try {
     const r = await fetch(`${API}/api/health`);
     const d = await r.json();
@@ -269,7 +269,9 @@ const PROVIDER_LABELS = {
     document.getElementById("status-dot").style.background = "var(--red)";
     document.getElementById("status-text").textContent = "API unreachable";
   }
-})();
+}
+
+init();
 
 // ── Provider ─────────────────────────────────────────────────────────────
 function renderProviders(availableProviders) {

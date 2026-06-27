@@ -47,6 +47,15 @@ class VectorStore:
                 time.sleep(2)
             logger.info("Pinecone index ready")
         else:
+            index_info = self._pc.describe_index(self.index_name)
+            existing_dimension = getattr(index_info, "dimension", None)
+            if existing_dimension is not None and existing_dimension != self.dimension:
+                raise RuntimeError(
+                    f"Pinecone index '{self.index_name}' has dimension {existing_dimension}, "
+                    f"but the configured embedding model produces {self.dimension}. "
+                    "Delete and recreate the index, or point config.yaml to a matching index "
+                    "before uploading documents."
+                )
             logger.info(f"Using existing Pinecone index '{self.index_name}'")
         return self._pc.Index(self.index_name)
 

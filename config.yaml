@@ -1,6 +1,6 @@
 pinecone:
-  index_name: plato-ground-segment
-  dimension: 1536           # text-embedding-3-small
+  index_name: ground-segment-documents
+  dimension: 384           # all-MiniLM-L6-v2
   metric: cosine
   namespace: esa-missions
 
@@ -31,11 +31,11 @@ llm:
       model: gemini-1.5-pro
       max_tokens: 2048
       temperature: 0.1
-    meta:
-      model: llama3.1
-      max_tokens: 2048
+    ollama:
+      model: llama3.2:1b
+      max_tokens: 512
       temperature: 0.1
-
+   
 retrieval:
   top_k: 5
   score_threshold: 0.65

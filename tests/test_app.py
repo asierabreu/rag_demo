@@ -288,6 +288,23 @@ class TestEmbedder:
             assert len(embedder.embed_batch(["a", "b"])) == 2
 
 
+class TestVectorStore:
+
+    def test_existing_index_dimension_mismatch_raises(self):
+        from src.vectordb.vector_store import VectorStore
+
+        mock_pinecone_client = MagicMock()
+        mock_pinecone_client.list_indexes.return_value = [types.SimpleNamespace(name="test-index")]
+        mock_pinecone_client.describe_index.return_value = types.SimpleNamespace(
+            status={"ready": True},
+            dimension=1536,
+        )
+
+        with patch("src.vectordb.vector_store.Pinecone", return_value=mock_pinecone_client):
+            with pytest.raises(RuntimeError, match="dimension 1536"):
+                VectorStore(index_name="test-index", dimension=384, metric="cosine")
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Prompt template tests
 # ══════════════════════════════════════════════════════════════════════════

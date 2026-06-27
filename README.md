@@ -222,5 +222,6 @@ No API keys are required to run the test suite.
 
 - **Session store** — conversation history is held in-memory (`dict`). For multi-worker or persistent deployments replace `_sessions` in `routes.py` with a Redis-backed store.
 - **Embeddings** — OpenAI is the default embedding backend, but you can switch to local `sentence-transformers` models in `config.yaml` to avoid OpenAI quota limits. Changing embedding model or provider requires re-indexing all documents.
+- **Pinecone index dimension** — if you change `embeddings.provider` or `embeddings.model`, make sure the Pinecone index dimension matches the new embedding size. Existing Pinecone indexes do not change dimensions in place, so you must delete/recreate the index or use a different index name before uploading documents.
 - **Pinecone tier** — the default `ServerlessSpec` targets AWS `us-east-1`. Adjust in `vector_store.py` to match your Pinecone plan/region.
 - **Auth** — no authentication is implemented. Add FastAPI `Depends` middleware or an API-key header before exposing to a network.
