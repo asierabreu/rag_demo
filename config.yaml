@@ -1,5 +1,5 @@
 pinecone:
-  index_name: esa-ground-segment
+  index_name: plato-ground-segment
   dimension: 1536           # text-embedding-3-small
   metric: cosine
   namespace: esa-missions
@@ -13,7 +13,7 @@ chunking:
   chunk_overlap: 200
 
 llm:
-  default_provider: anthropic
+  default_provider: meta
   providers:
     openai:
       model: gpt-4o
@@ -27,6 +27,10 @@ llm:
       model: gemini-1.5-pro
       max_tokens: 2048
       temperature: 0.1
+    meta:
+      model: llama3.1
+      max_tokens: 2048
+      temperature: 0.1
 
 retrieval:
   top_k: 5
@@ -35,5 +39,5 @@ retrieval:
 api:
   host: "0.0.0.0"
   port: 8000
-  title: "ESA Ground Segment RAG"
+  title: "ESA PLATO Ground Segment RAG"
   version: "1.0.0"

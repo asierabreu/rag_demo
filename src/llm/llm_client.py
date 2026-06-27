@@ -156,6 +156,45 @@ class GoogleClient(BaseLLMClient):
         chat_session = model.start_chat(history=gemini_history)
         return chat_session.send_message(user_message).text
 
+# ── Meta Ollama ──────────────────────────────────────────────────────────
+
+class OllamaClient(BaseLLMClient):
+    """Meta Ollama models via the ollama SDK."""
+
+    def __init__(self, model: str = "llama3.1", **kwargs: Any) -> None:
+        super().__init__(model, **kwargs)
+        import google.generativeai as genai
+        genai.configure(api_key=os.getenv("OLLAMA_API_KEY"))
+        self._genai = genai
+
+    @property
+    def provider_name(self) -> str:
+        return "ollama"
+
+    def chat(
+        self,
+        system_prompt: str,
+        user_message: str,
+        history: list[dict[str, str]] | None = None,
+    ) -> str:
+        model = self._genai.GenerativeModel(
+            model_name=self.model,
+            system_instruction=system_prompt,
+            generation_config=self._genai.types.GenerationConfig(
+                max_output_tokens=self.max_tokens,
+                temperature=self.temperature,
+            ),
+        )
+        # Convert OpenAI-style history to Ollama format
+        ollama_history = []
+        if history:
+            for msg in history:
+                role = "user" if msg["role"] == "user" else "model"
+                ollama_history.append({"role": role, "parts": [msg["content"]]})
+
+        chat_session = model.start_chat(history=ollama_history)
+        return chat_session.send_message(user_message).text
+
 
 # ── Factory ────────────────────────────────────────────────────────────────
 
@@ -166,12 +205,14 @@ class LLMFactory:
         "openai":    OpenAIClient,
         "anthropic": AnthropicClient,
         "google":    GoogleClient,
+        "ollama":    OllamaClient,
     }
 
     _DEFAULTS: dict[str, str] = {
         "openai":    "gpt-4o",
         "anthropic": "claude-sonnet-4-6",
         "google":    "gemini-1.5-pro",
+        "ollama":    "llama3.1",
     }
 
     @classmethod
