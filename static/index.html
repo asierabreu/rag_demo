@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ESA Ground Segment · RAG Assistant</title>
+<style>
+/* ── Reset & variables ──────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg0:#0d1117; --bg1:#161b22; --bg2:#1c2128; --bg3:#21262d;
+  --border:#30363d; --accent:#2563eb; --accent2:#3b82f6;
+  --text:#e6edf3; --muted:#8b949e; --green:#238636;
+  --amber:#d29922; --red:#f85149;
+  --radius:8px; --font:system-ui,-apple-system,sans-serif;
+}
+body{font-family:var(--font);background:var(--bg0);color:var(--text);
+     display:flex;height:100vh;overflow:hidden}
+
+/* ── Sidebar ────────────────────────────────────────────────── */
+#sidebar{width:280px;background:var(--bg1);border-right:1px solid var(--border);
+         display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-header{padding:16px;border-bottom:1px solid var(--border)}
+.sidebar-header h1{font-size:15px;font-weight:600;color:var(--text)}
+.sidebar-header p{font-size:12px;color:var(--muted);margin-top:2px}
+.esa-badge{display:inline-flex;align-items:center;gap:6px;
+           background:var(--accent);color:#fff;font-size:11px;
+           font-weight:600;padding:3px 8px;border-radius:12px;margin-top:8px}
+
+/* Provider selector */
+.section-label{font-size:11px;font-weight:600;color:var(--muted);
+               text-transform:uppercase;letter-spacing:.8px;
+               padding:12px 16px 6px}
+.provider-select{margin:0 12px 8px;display:flex;flex-direction:column;gap:6px}
+.provider-btn{display:flex;align-items:center;gap:8px;padding:8px 10px;
+              border-radius:var(--radius);border:1px solid var(--border);
+              background:var(--bg2);color:var(--text);cursor:pointer;
+              font-size:13px;transition:all .15s}
+.provider-btn:hover{border-color:var(--accent2);background:var(--bg3)}
+.provider-btn.active{border-color:var(--accent);background:#1d3461}
+.provider-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot-openai{background:#10b981}.dot-anthropic{background:#f59e0b}
+.dot-google{background:#3b82f6}
+
+/* Mission filter */
+#mission-input{margin:0 12px 8px;padding:7px 10px;background:var(--bg2);
+               border:1px solid var(--border);border-radius:var(--radius);
+               color:var(--text);font-size:13px;width:calc(100% - 24px)}
+#mission-input:focus{outline:none;border-color:var(--accent2)}
+#mission-input::placeholder{color:var(--muted)}
+
+/* Upload area */
+.upload-zone{margin:0 12px;border:1px dashed var(--border);border-radius:var(--radius);
+             padding:14px;text-align:center;cursor:pointer;transition:all .2s}
+.upload-zone:hover{border-color:var(--accent2);background:var(--bg3)}
+.upload-zone input{display:none}
+.upload-icon{font-size:22px;margin-bottom:4px}
+.upload-zone p{font-size:12px;color:var(--muted)}
+.upload-zone span{font-size:11px;color:var(--accent2)}
+#upload-status{font-size:12px;padding:6px 12px;min-height:22px;color:var(--muted)}
+
+/* Stats */
+.stats-row{padding:8px 16px;font-size:12px;color:var(--muted);
+           border-top:1px solid var(--border);margin-top:auto}
+.stats-row b{color:var(--text)}
+
+/* ── Main ───────────────────────────────────────────────────── */
+#main{display:flex;flex-direction:column;flex:1;min-width:0}
+
+/* Top bar */
+#topbar{display:flex;align-items:center;gap:12px;padding:0 20px;
+        height:56px;border-bottom:1px solid var(--border);background:var(--bg1);
+        flex-shrink:0}
+#topbar h2{font-size:15px;font-weight:600;flex:1}
+.status-pill{display:flex;align-items:center;gap:5px;font-size:12px;
+             color:var(--muted);background:var(--bg2);padding:4px 10px;
+             border-radius:12px;border:1px solid var(--border)}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+/* Chat area */
+#chat-area{flex:1;overflow-y:auto;padding:24px 20px;display:flex;
+           flex-direction:column;gap:16px}
+#chat-area::-webkit-scrollbar{width:6px}
+#chat-area::-webkit-scrollbar-track{background:transparent}
+#chat-area::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+/* Messages */
+.msg{display:flex;gap:10px;max-width:820px}
+.msg.user{align-self:flex-end;flex-direction:row-reverse}
+.avatar{width:32px;height:32px;border-radius:50%;display:flex;
+        align-items:center;justify-content:center;font-size:14px;
+        flex-shrink:0;border:1px solid var(--border)}
+.avatar.user-av{background:#1d3461;border-color:var(--accent)}
+.avatar.bot-av{background:var(--bg3)}
+.bubble{background:var(--bg2);border:1px solid var(--border);
+        border-radius:var(--radius);padding:12px 14px;
+        font-size:14px;line-height:1.6;word-break:break-word}
+.msg.user .bubble{background:#1d3461;border-color:var(--accent)}
+.bubble pre{background:var(--bg0);border:1px solid var(--border);
+            border-radius:5px;padding:8px 10px;margin:8px 0;
+            font-size:12px;overflow-x:auto;white-space:pre-wrap}
+.bubble code{font-family:monospace;font-size:12.5px;
+             background:var(--bg0);padding:1px 4px;border-radius:3px}
+
+/* Sources */
+.sources{margin-top:10px;border-top:1px solid var(--border);padding-top:8px}
+.sources summary{font-size:12px;color:var(--muted);cursor:pointer;
+                 list-style:none;display:flex;align-items:center;gap:4px}
+.sources summary::before{content:"▸";transition:transform .2s}
+details[open] .sources summary::before{transform:rotate(90deg)}
+.source-item{margin-top:6px;font-size:11.5px;color:var(--muted);
+             background:var(--bg0);border:1px solid var(--border);
+             border-radius:5px;padding:6px 8px;line-height:1.5}
+.source-item b{color:var(--text)}
+.score-badge{display:inline-block;font-size:10px;padding:1px 5px;
+             border-radius:8px;border:1px solid var(--border);
+             color:var(--accent2);margin-left:4px}
+
+/* Typing indicator */
+.typing{display:flex;gap:4px;padding:14px;align-items:center}
+.typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);
+             animation:bounce .9s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-6px)}}
+
+/* Empty state */
+#empty-state{flex:1;display:flex;flex-direction:column;align-items:center;
+             justify-content:center;gap:8px;color:var(--muted);text-align:center}
+#empty-state .big{font-size:42px}
+#empty-state h3{font-size:16px;color:var(--text)}
+#empty-state p{font-size:13px;max-width:340px;line-height:1.6}
+.suggestion-chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px}
+.chip{background:var(--bg2);border:1px solid var(--border);border-radius:16px;
+      padding:5px 12px;font-size:12px;cursor:pointer;transition:all .15s}
+.chip:hover{border-color:var(--accent2);color:var(--accent2)}
+
+/* Input bar */
+#input-bar{padding:16px 20px;border-top:1px solid var(--border);
+           background:var(--bg1);flex-shrink:0}
+.input-row{display:flex;gap:8px;align-items:flex-end}
+#query-input{flex:1;background:var(--bg2);border:1px solid var(--border);
+             border-radius:var(--radius);color:var(--text);font-size:14px;
+             padding:10px 12px;resize:none;min-height:42px;max-height:160px;
+             font-family:var(--font);line-height:1.5}
+#query-input:focus{outline:none;border-color:var(--accent2)}
+#query-input::placeholder{color:var(--muted)}
+#send-btn{background:var(--accent);border:none;border-radius:var(--radius);
+          color:#fff;padding:10px 18px;cursor:pointer;font-size:14px;
+          font-weight:500;transition:background .15s;height:42px;white-space:nowrap}
+#send-btn:hover{background:var(--accent2)}
+#send-btn:disabled{opacity:.4;cursor:not-allowed}
+.input-hint{font-size:11px;color:var(--muted);margin-top:6px}
+</style>
+</head>
+<body>
+
+<!-- ── Sidebar ────────────────────────────────────────────────────── -->
+<aside id="sidebar">
+  <div class="sidebar-header">
+    <h1>Ground Segment RAG</h1>
+    <p>ESA Mission Documentation</p>
+    <div class="esa-badge">🛰 ESA · Multi-Mission</div>
+  </div>
+
+  <div class="section-label">LLM Provider</div>
+  <div class="provider-select">
+    <button class="provider-btn active" data-provider="anthropic" onclick="setProvider(this)">
+      <span class="provider-dot dot-anthropic"></span>Claude (Anthropic)
+    </button>
+    <button class="provider-btn" data-provider="openai" onclick="setProvider(this)">
+      <span class="provider-dot dot-openai"></span>GPT-4o (OpenAI)
+    </button>
+    <button class="provider-btn" data-provider="google" onclick="setProvider(this)">
+      <span class="provider-dot dot-google"></span>Gemini (Google)
+    </button>
+  </div>
+
+  <div class="section-label">Mission Filter</div>
+  <input id="mission-input" type="text"
+         placeholder="e.g. PLATO, Gaia, CHEOPS …"
+         title="Leave blank to search all missions"/>
+
+  <div class="section-label">Upload Documentation</div>
+  <label class="upload-zone">
+    <input type="file" id="file-input" accept=".pdf,.csv" onchange="handleUpload()"/>
+    <div class="upload-icon">📄</div>
+    <p>Drop PDF or CSV</p>
+    <span>Click to browse</span>
+  </label>
+  <div id="upload-status"></div>
+
+  <div class="stats-row" id="stats-row">Loading index stats …</div>
+</aside>
+
+<!-- ── Main ──────────────────────────────────────────────────────── -->
+<main id="main">
+  <div id="topbar">
+    <h2>Ground Segment Assistant</h2>
+    <div class="status-pill">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Connecting …</span>
+    </div>
+    <button onclick="clearChat()"
+            style="background:var(--bg3);border:1px solid var(--border);
+                   color:var(--muted);padding:5px 12px;border-radius:var(--radius);
+                   cursor:pointer;font-size:12px">
+      Clear chat
+    </button>
+  </div>
+
+  <div id="chat-area">
+    <div id="empty-state">
+      <div class="big">🛰</div>
+      <h3>Ask about ground segment systems</h3>
+      <p>Upload ESA mission documentation (PDF/CSV), then query it in natural language.
+         Citations and source excerpts are returned with every answer.</p>
+      <div class="suggestion-chips">
+        <div class="chip" onclick="sendChip(this)">What is the PLATO MCS uplink architecture?</div>
+        <div class="chip" onclick="sendChip(this)">Describe the TM/TC processing chain for Gaia</div>
+        <div class="chip" onclick="sendChip(this)">List ECSS standards applicable to SLE interfaces</div>
+        <div class="chip" onclick="sendChip(this)">What are the ground station handover procedures?</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="input-bar">
+    <div class="input-row">
+      <textarea id="query-input" rows="1"
+                placeholder="Ask about ESA ground segment documentation …"
+                onkeydown="handleKey(event)"
+                oninput="autoResize(this)"></textarea>
+      <button id="send-btn" onclick="sendMessage()">Send ↩</button>
+    </div>
+    <div class="input-hint">Enter to send · Shift+Enter for new line</div>
+  </div>
+</main>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────
+let provider  = "anthropic";
+let sessionId = null;
+const API     = "";          // same origin; change if backend is on different port
+
+// ── Init ─────────────────────────────────────────────────────────────────
+(async function init() {
+  try {
+    const r = await fetch(`${API}/api/health`);
+    const d = await r.json();
+    document.getElementById("status-dot").style.background =
+      d.pinecone_connected ? "var(--green)" : "var(--amber)";
+    document.getElementById("status-text").textContent =
+      d.pinecone_connected
+        ? `Connected · ${d.total_vector_count.toLocaleString()} vectors`
+        : "Pinecone not connected";
+    document.getElementById("stats-row").innerHTML =
+      `<b>${d.total_vector_count.toLocaleString()}</b> vectors indexed`;
+  } catch {
+    document.getElementById("status-dot").style.background = "var(--red)";
+    document.getElementById("status-text").textContent = "API unreachable";
+  }
+})();
+
+// ── Provider ─────────────────────────────────────────────────────────────
+function setProvider(btn) {
+  document.querySelectorAll(".provider-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  provider = btn.dataset.provider;
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────────
+function handleKey(e) {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+function autoResize(el) {
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 160) + "px";
+}
+function clearChat() {
+  sessionId = null;
+  const area = document.getElementById("chat-area");
+  area.innerHTML = "";
+  document.getElementById("empty-state") || (area.innerHTML =
+    `<div id="empty-state" style="flex:1;display:flex;align-items:center;
+     justify-content:center;color:var(--muted)">Chat cleared</div>`);
+}
+
+async function sendMessage() {
+  const input = document.getElementById("query-input");
+  const query = input.value.trim();
+  if (!query) return;
+
+  document.getElementById("empty-state")?.remove();
+  appendUserMsg(query);
+  input.value = "";
+  autoResize(input);
+
+  const typingEl = appendTyping();
+  document.getElementById("send-btn").disabled = true;
+
+  const mission = document.getElementById("mission-input").value.trim() || null;
+
+  try {
+    const resp = await fetch(`${API}/api/chat`, {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({
+        query,
+        provider,
+        mission_filter: mission,
+        session_id: sessionId,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    const data = await resp.json();
+    sessionId  = data.session_id;
+    typingEl.remove();
+    appendBotMsg(data.answer, data.sources, data.provider);
+  } catch (e) {
+    typingEl.remove();
+    appendBotMsg(`⚠️ Error: ${e.message}`, [], provider);
+  }
+  document.getElementById("send-btn").disabled = false;
+}
+
+function sendChip(el) {
+  document.getElementById("query-input").value = el.textContent;
+  sendMessage();
+}
+
+// ── DOM helpers ───────────────────────────────────────────────────────────
+function appendUserMsg(text) {
+  const area = document.getElementById("chat-area");
+  const div  = document.createElement("div");
+  div.className = "msg user";
+  div.innerHTML = `
+    <div class="avatar user-av">👨‍💻</div>
+    <div class="bubble">${escHtml(text)}</div>`;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function appendBotMsg(text, sources, prov) {
+  const area = document.getElementById("chat-area");
+  const div  = document.createElement("div");
+  div.className = "msg";
+
+  const provIcons = {anthropic:"🟡", openai:"🟢", google:"🔵"};
+  const icon = provIcons[prov] || "🤖";
+
+  let sourceHtml = "";
+  if (sources && sources.length) {
+    const items = sources.map((s,i) => `
+      <div class="source-item">
+        <b>[${i+1}] ${escHtml(s.document)}</b>
+        <span class="score-badge">${s.score}</span><br>
+        Mission: ${escHtml(s.mission)} · Page/Row: ${escHtml(String(s.page))}<br>
+        <em>${escHtml(s.excerpt)}</em>
+      </div>`).join("");
+    sourceHtml = `
+      <details class="sources">
+        <summary>Sources (${sources.length})</summary>
+        ${items}
+      </details>`;
+  }
+
+  div.innerHTML = `
+    <div class="avatar bot-av">${icon}</div>
+    <div class="bubble">
+      ${formatMarkdown(text)}
+      ${sourceHtml}
+    </div>`;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function appendTyping() {
+  const area = document.getElementById("chat-area");
+  const div  = document.createElement("div");
+  div.className = "msg";
+  div.innerHTML = `
+    <div class="avatar bot-av">🤖</div>
+    <div class="bubble">
+      <div class="typing">
+        <span></span><span></span><span></span>
+      </div>
+    </div>`;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+  return div;
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────
+async function handleUpload() {
+  const fileInput  = document.getElementById("file-input");
+  const statusEl   = document.getElementById("upload-status");
+  const file       = fileInput.files[0];
+  if (!file) return;
+
+  const missionInput = document.getElementById("mission-input").value.trim();
+  const mission = missionInput ||
+    prompt(`Enter mission name for '${file.name}':`, "Unknown");
+  if (!mission) return;
+
+  statusEl.textContent = `⏳ Uploading ${file.name} …`;
+  statusEl.style.color = "var(--amber)";
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("mission_name", mission);
+
+  try {
+    const resp = await fetch(`${API}/api/ingest`, {method:"POST", body:form});
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    const d = await resp.json();
+    statusEl.textContent =
+      `✅ ${d.document_name} — ${d.chunks_created} chunks ingested`;
+    statusEl.style.color = "var(--green)";
+    // Refresh stats
+    init();
+  } catch (e) {
+    statusEl.textContent = `❌ ${e.message}`;
+    statusEl.style.color = "var(--red)";
+  }
+  fileInput.value = "";
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+function formatMarkdown(text) {
+  return escHtml(text)
+    // Code blocks
+    .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
+    // Inline code
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    // Bold
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    // Bullet lists
+    .replace(/^• (.+)$/gm, "<li>$1</li>")
+    .replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>")
+    // Line breaks
+    .replace(/\n/g, "<br>");
+}
+</script>
+</body>
+</html>

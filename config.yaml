@@ -1,0 +1,39 @@
+pinecone:
+  index_name: esa-ground-segment
+  dimension: 1536           # text-embedding-3-small
+  metric: cosine
+  namespace: esa-missions
+
+embeddings:
+  provider: openai
+  model: text-embedding-3-small
+
+chunking:
+  chunk_size: 1000
+  chunk_overlap: 200
+
+llm:
+  default_provider: anthropic
+  providers:
+    openai:
+      model: gpt-4o
+      max_tokens: 2048
+      temperature: 0.1
+    anthropic:
+      model: claude-sonnet-4-6
+      max_tokens: 2048
+      temperature: 0.1
+    google:
+      model: gemini-1.5-pro
+      max_tokens: 2048
+      temperature: 0.1
+
+retrieval:
+  top_k: 5
+  score_threshold: 0.65
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  title: "ESA Ground Segment RAG"
+  version: "1.0.0"

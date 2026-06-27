@@ -1,0 +1,34 @@
+# Web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+
+# Config & env
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+pydantic>=2.0.0
+
+# Document ingestion
+pypdf>=4.3.0
+pandas>=2.0.0
+openpyxl>=3.1.0           # CSV/Excel support via pandas
+
+# Embeddings & chunking
+openai>=1.40.0
+langchain-text-splitters>=0.2.0
+tiktoken>=0.7.0
+
+# Vector DB
+pinecone>=5.0.0
+
+# LLM providers
+anthropic>=0.34.0
+google-generativeai>=0.7.0
+
+# Observability
+loguru>=0.7.0
+httpx>=0.27.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
