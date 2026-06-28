@@ -17,10 +17,10 @@ chunking:
   chunk_overlap: 200
 
 llm:
-  default_provider: meta
+  default_provider: openai
   providers:
     openai:
-      model: gpt-4o
+      model: deepseek-ai/DeepSeek-V4-Pro
       max_tokens: 2048
       temperature: 0.1
     anthropic:

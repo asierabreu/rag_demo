@@ -50,7 +50,7 @@ class BaseLLMClient(ABC):
 # ── OpenAI ─────────────────────────────────────────────────────────────────
 
 class OpenAIClient(BaseLLMClient):
-    """GPT-4o and compatible OpenAI chat models."""
+    """OpenAI compatible chat models."""
 
     def __init__(self, model: str = "gpt-4o", **kwargs: Any) -> None:
         super().__init__(model, **kwargs)
@@ -164,7 +164,6 @@ class OllamaClient(BaseLLMClient):
     def __init__(self, model: str = "llama3.1", **kwargs: Any) -> None:
         super().__init__(model, **kwargs)
         import ollama
-
         self._client = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
     @property
