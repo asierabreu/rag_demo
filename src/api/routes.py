@@ -92,6 +92,33 @@ def _format_ingest_error(exc: Exception) -> tuple[int, str]:
     return 500, message
 
 
+def _is_index_count_query(query: str) -> bool:
+    lowered = query.lower()
+    count_markers = (
+        "how many",
+        "number of",
+        "count",
+        "total",
+    )
+    corpus_markers = (
+        "doc",
+        "document",
+        "documents",
+        "docs",
+        "vector",
+        "vectors",
+        "chunk",
+        "chunks",
+        "file",
+        "files",
+        "database",
+        "index",
+    )
+    return any(marker in lowered for marker in count_markers) and any(
+        marker in lowered for marker in corpus_markers
+    )
+
+
 # ── App factory ────────────────────────────────────────────────────────────
 
 def create_app(config: dict[str, Any]) -> FastAPI:
@@ -193,6 +220,27 @@ def create_app(config: dict[str, Any]) -> FastAPI:
         # Session
         session_id = req.session_id or str(uuid.uuid4())
         history    = _sessions.get(session_id, [])
+
+        if _is_index_count_query(req.query):
+            stats = vector_store.get_stats(ns)
+            namespace_stats = stats.get("namespaces", {}).get(ns, {})
+            count = namespace_stats.get("vector_count", stats.get("total_vector_count", 0))
+            answer = (
+                f"There are {count} indexed chunks in the current database namespace. "
+                "Each chunk comes from an ingested document page or row."
+            )
+
+            history.append({"role": "user", "content": req.query})
+            history.append({"role": "assistant", "content": answer})
+            _sessions[session_id] = history[-_MAX_HISTORY:]
+
+            return ChatResponse(
+                answer=answer,
+                sources=[],
+                provider=req.provider,
+                session_id=session_id,
+                chunks_retrieved=0,
+            )
 
         # Retrieve context
         chunks = retriever.retrieve(

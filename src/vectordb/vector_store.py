@@ -142,9 +142,4 @@ class VectorStore:
 
     def get_stats(self, namespace: str = "default") -> dict[str, Any]:
         stats = self._index.describe_index_stats()
-        ns_info = dict(stats.namespaces) if stats.namespaces else {}
-        return {
-            "total_vector_count": stats.total_vector_count,
-            "dimension":          stats.dimension,
-            "namespaces":         {k: v.__dict__ for k, v in ns_info.items()},
-        }
+        return stats.to_dict()

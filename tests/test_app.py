@@ -355,6 +355,30 @@ class TestChatEndpoint:
         resp = client.post("/api/chat", json={"query": "  ", "provider": "anthropic"})
         assert resp.status_code == 400
 
+    def test_chat_handles_index_count_query_without_llm(self, client):
+        with (
+            patch("src.vectordb.vector_store.VectorStore.get_stats",
+                  return_value={
+                      "total_vector_count": 17,
+                      "dimension": 1536,
+                      "namespaces": {"test-ns": {"vector_count": 17}},
+                  }),
+            patch("src.retrieval.retriever.Retriever.retrieve") as mock_retrieve,
+            patch("src.llm.llm_client.AnthropicClient.chat") as mock_chat,
+        ):
+            resp = client.post("/api/chat", json={
+                "query": "How many docs are in the database?",
+                "provider": "anthropic",
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "17" in data["answer"]
+        assert data["sources"] == []
+        assert data["chunks_retrieved"] == 0
+        mock_retrieve.assert_not_called()
+        mock_chat.assert_not_called()
+
     def test_chat_returns_answer(self, client):
         with (
             patch("src.retrieval.retriever.Retriever.retrieve",
