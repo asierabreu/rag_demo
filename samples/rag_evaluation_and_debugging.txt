@@ -1,0 +1,55 @@
+You own a production RAG-powered semantic search feature for a fintech product. Users enter natural-language questions; the system retrieves relevant internal documents or records, and an LLM generates an answer with inline citations.
+
+Design a lightweight but production-ready evaluation and debugging framework for this system. The interviewer cares less about a sprawling architecture diagram and more about whether you can measure quality at every stage, catch regressions before they ship, and localize a live failure with evidence rather than guesswork.
+
+The problem has five parts (below). Treat each as its own discussion, but keep them coherent — the offline metrics you define should be the same ones your CI gates and dashboards track, and the debugging walkthrough should reference the instrumentation you proposed.
+Constraints & Assumptions
+
+    Domain: fintech (banking/payments/compliance). Wrong or unsupported answers carry regulatory and trust risk; faithfulness and permission-correctness are non-negotiable .
+    Scale: assume on the order of 105105 – 106106 queries/day, a corpus of hundreds of thousands to a few million documents/records, with frequent document churn (policies and account data change daily).
+    Pipeline (assume this is roughly what exists): query normalization → optional query rewrite → query embedding → vector (ANN) retrieval, optionally hybrid with lexical/BM25 → metadata/permission filtering → reranking → context construction/truncation → LLM generation → citation extraction → logging/feedback.
+    Multi-tenant: documents belong to tenants/users; retrieval must respect permission and tenant boundaries.
+    "Lightweight" means: prefer a small, maintainable set of metrics and automated checks over an exhaustive eval platform; reuse production logs rather than building a large labeling org.
+
+Clarifying Questions to Ask
+
+    What is the primary product surface — a chatbot answer, a ranked list of documents, or both? (Determines whether retrieval metrics or answer metrics dominate.)
+    What does "answer with citations" require — must every sentence be cited, or just the answer overall? Is a wrong-but-cited answer worse than a refusal?
+    What's the labeling budget — do we have domain experts (compliance/CS) available, or must we lean on LLM-as-judge?
+    How often does the corpus change, and is there an existing ground-truth notion of "the right document" for a query (e.g. analyst-curated answers)?
+    What are the hard latency and cost SLAs the product commits to, and is there a fallback path when the primary retriever times out?
+    Are there regulatory constraints (data residency, PII handling, audit logging) that the eval and logging system itself must satisfy?
+
+Part 1 — Offline Evaluation
+
+Define the metrics you would compute offline (on a fixed benchmark, before traffic) for: retrieval quality, answer quality, faithfulness, latency, and cost. For each, say what it measures and roughly what target/threshold you'd hold it to. Make clear which metrics evaluate a single stage (e.g. retrieval) versus the end-to-end answer.
+What This Part Should Cover
+Premium
+Part 2 — Online Evaluation
+
+Describe the online signals: product metrics, business metrics, user feedback, A/B testing methodology, and guardrail metrics. Explain why offline metrics alone are insufficient and how you'd run a controlled experiment for a retriever/prompt change.
+What This Part Should Cover
+Premium
+Part 3 — Evaluation Datasets
+
+Explain where the benchmark data comes from, how labels are created, how you generate and use hard negatives, and how you keep the benchmark fresh without destroying trend comparability.
+What This Part Should Cover
+Premium
+Part 4 — Automation, Gates, Dashboards & Alerts
+
+Describe how evaluation runs in CI/CD, what your model-release gates are, what dashboards you'd build, what you'd alert on, and how you'd do regression analysis when a metric moves.
+What This Part Should Cover
+Premium
+Part 5 — Failure Analysis: Sudden Drop in Semantic Search Quality
+
+Search relevance suddenly drops in production. Walk through a concrete debugging process: how you instrument and localize the failure, the likely root causes (ranked), the experiments you'd run to confirm, the fix, and crucially how you prove the fix worked. Do not simply say "I'd swap the embedding model" — show how you'd attribute the regression to a specific stage and validate the fix with evidence.
+What This Part Should Cover
+Premium
+What a Strong Answer Covers
+Premium
+Follow-up Questions
+
+    Your LLM-as-judge for faithfulness is itself a model — how do you evaluate and trust the judge, and what do you do when the judge and human labels disagree?
+    A new retriever improves NDCG@10 offline but loses the online A/B on answer-acceptance. How do you reconcile that, and which do you believe?
+    A regulator asks you to demonstrate that a specific user could not have retrieved a document they weren't entitled to. What in your eval/logging system lets you answer that, and how would you test for permission leaks proactively?
+    The corpus is 90% unchanged week-over-week but 10% churns daily. How do you keep retrieval quality stable across re-indexing, and how would you detect a silent indexing failure on the churning slice?
