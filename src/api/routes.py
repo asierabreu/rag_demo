@@ -24,9 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pydantic import BaseModel
 
-from src.chunking   import DocumentChunker
 from src.embeddings import Embedder
-from src.ingestion  import DocumentLoader
 from src.llm        import LLMFactory
 from src.prompts    import SYSTEM_PROMPT, build_no_context_response, build_rag_prompt
 from src.retrieval  import Retriever
@@ -140,26 +138,61 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     )
 
     # ── Shared components ─────────────────────────────────────────────────
-    embedder = Embedder(
-        provider=config["embeddings"].get("provider", "openai"),
-        model=config["embeddings"]["model"],
-    )
-    vector_store = VectorStore(
-        index_name=config["pinecone"]["index_name"],
-        dimension=embedder.dimension,
-        metric=config["pinecone"]["metric"],
-    )
-    retriever = Retriever(
-        embedder=embedder,
-        vector_store=vector_store,
-        top_k=config["retrieval"]["top_k"],
-        score_threshold=config["retrieval"]["score_threshold"],
-    )
-    loader  = DocumentLoader()
-    chunker = DocumentChunker(
-        chunk_size=config["chunking"]["chunk_size"],
-        chunk_overlap=config["chunking"]["chunk_overlap"],
-    )
+    embedder = None
+    vector_store = None
+    retriever = None
+    loader = None
+    chunker = None
+
+    def _get_embedder():
+        nonlocal embedder
+        if embedder is None:
+            embedder = Embedder(
+                provider=config["embeddings"].get("provider", "openai"),
+                model=config["embeddings"]["model"],
+            )
+        return embedder
+
+    def _get_vector_store():
+        nonlocal vector_store
+        if vector_store is None:
+            current_embedder = _get_embedder()
+            vector_store = VectorStore(
+                index_name=config["pinecone"]["index_name"],
+                dimension=current_embedder.dimension,
+                metric=config["pinecone"]["metric"],
+            )
+        return vector_store
+
+    def _get_retriever():
+        nonlocal retriever
+        if retriever is None:
+            retriever = Retriever(
+                embedder=_get_embedder(),
+                vector_store=_get_vector_store(),
+                top_k=config["retrieval"]["top_k"],
+                score_threshold=config["retrieval"]["score_threshold"],
+            )
+        return retriever
+
+    def _get_loader():
+        nonlocal loader
+        if loader is None:
+            from src.ingestion import DocumentLoader
+
+            loader = DocumentLoader()
+        return loader
+
+    def _get_chunker():
+        nonlocal chunker
+        if chunker is None:
+            from src.chunking import DocumentChunker
+
+            chunker = DocumentChunker(
+                chunk_size=config["chunking"]["chunk_size"],
+                chunk_overlap=config["chunking"]["chunk_overlap"],
+            )
+        return chunker
     ns = config["pinecone"].get("namespace", "esa-missions")
 
     # ── Static UI ─────────────────────────────────────────────────────────
@@ -193,7 +226,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     @app.get("/api/health", response_model=HealthResponse, tags=["System"])
     async def health():
         try:
-            stats = vector_store.get_stats(ns)
+            stats = _get_vector_store().get_stats(ns)
             count = stats.get("total_vector_count", 0)
             ok    = True
         except Exception as exc:
@@ -208,7 +241,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
 
     @app.get("/api/stats", tags=["System"])
     async def stats():
-        return vector_store.get_stats(ns)
+        return _get_vector_store().get_stats(ns)
 
     # ── Chat ──────────────────────────────────────────────────────────────
 
@@ -243,7 +276,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
             )
 
         # Retrieve context
-        chunks = retriever.retrieve(
+        chunks = _get_retriever().retrieve(
             query=req.query,
             mission_name=req.mission_filter,
             namespace=ns,
@@ -251,7 +284,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
 
         # Build user message
         if chunks:
-            context      = retriever.format_context(chunks)
+            context      = _get_retriever().format_context(chunks)
             history_text = "\n".join(
                 f"{'Engineer' if m['role']=='user' else 'Assistant'}: {m['content']}"
                 for m in history[-6:]
@@ -314,11 +347,11 @@ def create_app(config: dict[str, Any]) -> FastAPI:
         logger.info(f"Ingesting: {file.filename} | mission={mission_name}")
         try:
             raw_bytes = await file.read()
-            docs      = loader.load_from_bytes(raw_bytes, file.filename, mission_name)
-            chunks    = chunker.chunk(docs)
+            docs      = _get_loader().load_from_bytes(raw_bytes, file.filename, mission_name)
+            chunks    = _get_chunker().chunk(docs)
             texts     = [c["text"] for c in chunks]
-            embeddings = embedder.embed_batch(texts)
-            upserted  = vector_store.upsert(chunks, embeddings, namespace=ns)
+            embeddings = _get_embedder().embed_batch(texts)
+            upserted  = _get_vector_store().upsert(chunks, embeddings, namespace=ns)
         except Exception as exc:
             logger.error(f"Ingestion failed: {exc}")
             status_code, detail = _format_ingest_error(exc)
@@ -340,7 +373,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     @app.delete("/api/missions/{mission_name}", tags=["Documents"])
     async def delete_mission(mission_name: str):
         try:
-            vector_store.delete_by_mission(mission_name, namespace=ns)
+            _get_vector_store().delete_by_mission(mission_name, namespace=ns)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return {"message": f"Deleted all vectors for mission '{mission_name}'."}
@@ -348,7 +381,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
     @app.delete("/api/documents/{document_name}", tags=["Documents"])
     async def delete_document(document_name: str):
         try:
-            vector_store.delete_by_document(document_name, namespace=ns)
+            _get_vector_store().delete_by_document(document_name, namespace=ns)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc))
         return {"message": f"Deleted all vectors for document '{document_name}'."}
