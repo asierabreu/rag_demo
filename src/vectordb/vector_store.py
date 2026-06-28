@@ -27,7 +27,7 @@ class VectorStore:
         self.dimension  = dimension
         self.metric     = metric
         self._pc        = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        self._index     = self._get_or_create_index()
+        self._index     = None
 
     # ── Index lifecycle ────────────────────────────────────────────────────
 
@@ -59,6 +59,11 @@ class VectorStore:
             logger.info(f"Using existing Pinecone index '{self.index_name}'")
         return self._pc.Index(self.index_name)
 
+    def _ensure_index(self):
+        if self._index is None:
+            self._index = self._get_or_create_index()
+        return self._index
+
     # ── Write ──────────────────────────────────────────────────────────────
 
     def upsert(
@@ -82,9 +87,10 @@ class VectorStore:
         ]
 
         total = 0
+        index = self._ensure_index()
         for i in range(0, len(vectors), self.UPSERT_BATCH):
             batch = vectors[i : i + self.UPSERT_BATCH]
-            self._index.upsert(vectors=batch, namespace=namespace)
+            index.upsert(vectors=batch, namespace=namespace)
             total += len(batch)
             logger.info(f"Upserted {total}/{len(vectors)} vectors to namespace '{namespace}'")
 
@@ -103,7 +109,7 @@ class VectorStore:
         pinecone_filter = (
             {"mission_name": {"$eq": filter_mission}} if filter_mission else None
         )
-        result = self._index.query(
+        result = self._ensure_index().query(
             vector=embedding,
             top_k=top_k,
             namespace=namespace,
@@ -124,7 +130,7 @@ class VectorStore:
 
     def delete_by_mission(self, mission_name: str, namespace: str = "default") -> None:
         """Delete all vectors tagged with a given mission."""
-        self._index.delete(
+        self._ensure_index().delete(
             filter={"mission_name": {"$eq": mission_name}},
             namespace=namespace,
         )
@@ -132,7 +138,7 @@ class VectorStore:
 
     def delete_by_document(self, document_name: str, namespace: str = "default") -> None:
         """Delete all vectors from a specific document."""
-        self._index.delete(
+        self._ensure_index().delete(
             filter={"document_name": {"$eq": document_name}},
             namespace=namespace,
         )
@@ -141,5 +147,5 @@ class VectorStore:
     # ── Stats ──────────────────────────────────────────────────────────────
 
     def get_stats(self, namespace: str = "default") -> dict[str, Any]:
-        stats = self._index.describe_index_stats()
+        stats = self._ensure_index().describe_index_stats()
         return stats.to_dict()
