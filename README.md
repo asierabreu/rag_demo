@@ -138,6 +138,8 @@ rag_project/
 | `GET`  | `/api/health` | Pinecone connection + vector count |
 | `GET`  | `/api/stats` | Full index statistics |
 | `POST` | `/api/chat` | RAG chat turn |
+| `POST` | `/api/debug/chat` | Debug retrieval, prompt assembly, and optional answer generation |
+| `POST` | `/api/evaluate` | Run a batch retrieval evaluation over labeled cases |
 | `POST` | `/api/ingest` | Upload and index a PDF or CSV |
 | `DELETE` | `/api/missions/{name}` | Delete all vectors for a mission |
 | `DELETE` | `/api/documents/{name}` | Delete all vectors from a document |
@@ -171,6 +173,57 @@ Response:
 Multipart form:
 - `file` — PDF or CSV binary
 - `mission_name` — e.g. `PLATO`, `Gaia`, `CHEOPS`
+
+### POST /api/debug/chat
+
+Use this endpoint when you want to inspect the retrieval path for a single question without changing the regular chat route. It returns the retrieved chunks, the assembled prompt, and the current session history. Set `include_answer` to `false` to skip the LLM call.
+
+```json
+{
+  "query": "What is the PLATO uplink rate?",
+  "provider": "anthropic",
+  "mission_filter": "PLATO",
+  "include_answer": false
+}
+```
+
+### POST /api/evaluate
+
+Run retrieval evaluation over a labeled set of queries. Each case supplies a query and the expected document names that should appear in the retrieved context.
+
+```json
+{
+  "top_k": 3,
+  "cases": [
+    {
+      "query": "What is the PLATO uplink rate?",
+      "expected_documents": ["PLATO_MCS_ICD_v0.pdf"]
+    }
+  ]
+}
+```
+
+The response includes per-case hits plus aggregate retrieval metrics such as hit rate, precision, recall, and reciprocal rank.
+
+## RAG debugging and evaluation workflow
+
+Use the debug and evaluation endpoints together when you change chunking, embeddings, retrieval thresholds, or the corpus itself.
+
+1. Start with `POST /api/debug/chat` for a single query.
+  - It shows the retrieved chunks, the assembled prompt, and the recent conversation history.
+  - Set `include_answer` to `false` when you only want to inspect retrieval and prompt construction.
+  - Keep `include_answer` enabled when you want to check whether the model answer still matches the retrieved context.
+2. Move to `POST /api/evaluate` for a labeled query set.
+  - Each case should define a query and the document names that ought to appear in the retrieved context.
+  - The endpoint reports per-case hits plus aggregate `hit_rate`, `precision_at_k`, `recall_at_k`, and `mean_reciprocal_rank`.
+3. Compare runs after changing the pipeline.
+  - Watch for fewer relevant chunks after altering `chunk_size`, `chunk_overlap`, `top_k`, or `score_threshold`.
+  - Use the same evaluation set before and after the change so the metrics are comparable.
+
+This makes the workflow explicit:
+
+- `debug/chat` answers: "Why did the model answer this way?"
+- `evaluate` answers: "Did retrieval get the right evidence?"
 
 ---
 

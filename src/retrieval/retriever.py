@@ -27,22 +27,19 @@ class Retriever:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    def retrieve(
+    def inspect_retrieval(
         self,
         query: str,
         mission_name: str | None = None,
         namespace: str = "default",
-    ) -> list[dict[str, Any]]:
-        """
-        Embed the query and return chunks that pass the score threshold.
-        Optionally filter by mission name.
-        """
+    ) -> dict[str, Any]:
+        """Return raw and filtered retrieval details for debugging and eval."""
         logger.info(
             f"Query: '{query[:80]}{'…' if len(query)>80 else ''}' "
             f"| mission={mission_name or 'all'}"
         )
         embedding = self.embedder.embed_text(query)
-        results   = self.vector_store.query(
+        results = self.vector_store.query(
             embedding=embedding,
             top_k=self.top_k,
             namespace=namespace,
@@ -53,7 +50,35 @@ class Retriever:
             f"Retrieved {len(filtered)}/{len(results)} chunks "
             f"(threshold={self.score_threshold})"
         )
-        return filtered
+        return {
+            "query": query,
+            "mission_name": mission_name,
+            "namespace": namespace,
+            "top_k": self.top_k,
+            "score_threshold": self.score_threshold,
+            "embedding_dimension": len(embedding),
+            "raw_chunks": results,
+            "chunks": filtered,
+            "raw_count": len(results),
+            "filtered_count": len(filtered),
+        }
+
+    def retrieve(
+        self,
+        query: str,
+        mission_name: str | None = None,
+        namespace: str = "default",
+    ) -> list[dict[str, Any]]:
+        """
+        Embed the query and return chunks that pass the score threshold.
+        Optionally filter by mission name.
+        """
+        inspection = self.inspect_retrieval(
+            query=query,
+            mission_name=mission_name,
+            namespace=namespace,
+        )
+        return inspection["chunks"]
 
     def format_context(self, chunks: list[dict[str, Any]]) -> str:
         """

@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.embeddings import Embedder
 from src.llm        import LLMFactory
@@ -70,6 +70,59 @@ class HealthResponse(BaseModel):
     available_providers: list[str]
 
 
+class DebugChatRequest(BaseModel):
+    query:          str
+    provider:       str = "anthropic"
+    mission_filter: str | None = None
+    session_id:     str | None = None
+    include_answer: bool = True
+
+
+class DebugChatResponse(BaseModel):
+    answer:           str | None
+    sources:          list[SourceItem]
+    provider:         str
+    session_id:       str
+    chunks_retrieved: int
+    raw_chunks:       int
+    context:          str
+    prompt:           str
+    history:          list[dict[str, str]]
+
+
+class EvaluationCaseRequest(BaseModel):
+    query:              str
+    expected_documents: list[str] = Field(default_factory=list)
+    mission_filter:     str | None = None
+
+
+class EvaluationRequest(BaseModel):
+    cases:    list[EvaluationCaseRequest]
+    namespace: str | None = None
+    top_k:    int | None = None
+
+
+class EvaluationCaseResult(BaseModel):
+    query:              str
+    expected_documents: list[str]
+    retrieved_documents: list[str]
+    hit:                bool
+    precision_at_k:     float
+    recall_at_k:        float
+    reciprocal_rank:    float
+    top_score:          float | None
+    chunks_retrieved:   int
+
+
+class EvaluationResponse(BaseModel):
+    total_cases:          int
+    hit_rate:             float
+    mean_precision_at_k:  float
+    mean_recall_at_k:     float
+    mean_reciprocal_rank: float
+    cases:                list[EvaluationCaseResult]
+
+
 # ── Session store (swap for Redis in production) ───────────────────────────
 
 _sessions: dict[str, list[dict[str, str]]] = {}
@@ -114,6 +167,101 @@ def _is_index_count_query(query: str) -> bool:
     )
     return any(marker in lowered for marker in count_markers) and any(
         marker in lowered for marker in corpus_markers
+    )
+
+
+def _format_history(history: list[dict[str, str]], limit: int = 6) -> str:
+    return "\n".join(
+        f"{'Engineer' if message['role']=='user' else 'Assistant'}: {message['content']}"
+        for message in history[-limit:]
+    )
+
+
+def _history_snapshot(history: list[dict[str, str]], limit: int = 6) -> list[dict[str, str]]:
+    return history[-limit:]
+
+
+def _chunk_to_source_item(chunk: dict[str, Any]) -> SourceItem:
+    return SourceItem(
+        document=chunk["metadata"].get("document_name", "Unknown"),
+        mission=chunk["metadata"].get("mission_name", "Unknown"),
+        page=chunk["metadata"].get("page", chunk["metadata"].get("row", "—")),
+        score=round(chunk["score"], 3),
+        excerpt=chunk["text"][:300] + ("…" if len(chunk["text"]) > 300 else ""),
+    )
+
+
+def _normalize_document_name(name: str) -> str:
+    return Path(name).name.strip().lower()
+
+
+def _unique_retrieved_documents(chunks: list[dict[str, Any]]) -> list[str]:
+    seen: set[str] = set()
+    documents: list[str] = []
+    for chunk in chunks:
+        document_name = chunk["metadata"].get("document_name", "Unknown")
+        normalized = _normalize_document_name(document_name)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        documents.append(document_name)
+    return documents
+
+
+def _evaluate_case(
+    retriever: Retriever,
+    query: str,
+    expected_documents: list[str],
+    mission_filter: str | None,
+    namespace: str,
+) -> EvaluationCaseResult:
+    inspection = retriever.inspect_retrieval(
+        query=query,
+        mission_name=mission_filter,
+        namespace=namespace,
+    )
+    chunks = inspection["chunks"]
+    retrieved_documents = _unique_retrieved_documents(chunks)
+    expected_normalized = {
+        _normalize_document_name(document)
+        for document in expected_documents
+        if document.strip()
+    }
+    retrieved_normalized = [
+        _normalize_document_name(document)
+        for document in retrieved_documents
+    ]
+    matched_documents = expected_normalized.intersection(retrieved_normalized)
+    hit = bool(matched_documents)
+
+    first_match_rank = next(
+        (index + 1 for index, document in enumerate(retrieved_normalized) if document in expected_normalized),
+        None,
+    )
+    reciprocal_rank = 1.0 / first_match_rank if first_match_rank else 0.0
+
+    precision_at_k = (
+        len(matched_documents) / len(retrieved_documents)
+        if retrieved_documents
+        else 0.0
+    )
+    recall_at_k = (
+        len(matched_documents) / len(expected_normalized)
+        if expected_normalized
+        else 0.0
+    )
+
+    top_score = chunks[0]["score"] if chunks else None
+    return EvaluationCaseResult(
+        query=query,
+        expected_documents=expected_documents,
+        retrieved_documents=retrieved_documents,
+        hit=hit,
+        precision_at_k=round(precision_at_k, 3),
+        recall_at_k=round(recall_at_k, 3),
+        reciprocal_rank=round(reciprocal_rank, 3),
+        top_score=round(top_score, 3) if top_score is not None else None,
+        chunks_retrieved=len(chunks),
     )
 
 
@@ -255,7 +403,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
         history    = _sessions.get(session_id, [])
 
         if _is_index_count_query(req.query):
-            stats = vector_store.get_stats(ns)
+            stats = _get_vector_store().get_stats(ns)
             namespace_stats = stats.get("namespaces", {}).get(ns, {})
             count = namespace_stats.get("vector_count", stats.get("total_vector_count", 0))
             answer = (
@@ -285,10 +433,7 @@ def create_app(config: dict[str, Any]) -> FastAPI:
         # Build user message
         if chunks:
             context      = _get_retriever().format_context(chunks)
-            history_text = "\n".join(
-                f"{'Engineer' if m['role']=='user' else 'Assistant'}: {m['content']}"
-                for m in history[-6:]
-            )
+            history_text = _format_history(history)
             user_msg = build_rag_prompt(req.query, context, history_text)
         else:
             user_msg = build_no_context_response(req.query, req.mission_filter)
@@ -329,6 +474,102 @@ def create_app(config: dict[str, Any]) -> FastAPI:
             provider=req.provider,
             session_id=session_id,
             chunks_retrieved=len(chunks),
+        )
+
+    @app.post("/api/debug/chat", response_model=DebugChatResponse, tags=["Debug"])
+    async def debug_chat(req: DebugChatRequest):
+        if not req.query.strip():
+            raise HTTPException(status_code=400, detail="Query cannot be empty.")
+
+        session_id = req.session_id or str(uuid.uuid4())
+        history = _sessions.get(session_id, [])
+        inspection = _get_retriever().inspect_retrieval(
+            query=req.query,
+            mission_name=req.mission_filter,
+            namespace=ns,
+        )
+        chunks = inspection["chunks"]
+        context = _get_retriever().format_context(chunks)
+        history_text = _format_history(history)
+        prompt = (
+            build_rag_prompt(req.query, context, history_text)
+            if chunks
+            else build_no_context_response(req.query, req.mission_filter)
+        )
+
+        answer: str | None = None
+        if req.include_answer:
+            try:
+                provider_cfg = config["llm"]["providers"].get(req.provider, {})
+                llm = LLMFactory.create(req.provider, provider_cfg)
+                answer = llm.chat(
+                    system_prompt=SYSTEM_PROMPT,
+                    user_message=prompt,
+                    history=None,
+                )
+            except Exception as exc:
+                logger.error(f"LLM error [{req.provider}]: {exc}")
+                raise HTTPException(status_code=500, detail=f"LLM error: {exc}")
+
+            history.append({"role": "user", "content": req.query})
+            history.append({"role": "assistant", "content": answer})
+            _sessions[session_id] = history[-_MAX_HISTORY:]
+
+        return DebugChatResponse(
+            answer=answer,
+            sources=[_chunk_to_source_item(chunk) for chunk in chunks],
+            provider=req.provider,
+            session_id=session_id,
+            chunks_retrieved=len(chunks),
+            raw_chunks=inspection["raw_count"],
+            context=context,
+            prompt=prompt,
+            history=_history_snapshot(history),
+        )
+
+    @app.post("/api/evaluate", response_model=EvaluationResponse, tags=["Evaluation"])
+    async def evaluate(req: EvaluationRequest):
+        if not req.cases:
+            raise HTTPException(status_code=400, detail="At least one evaluation case is required.")
+
+        retriever = _get_retriever()
+        namespace = req.namespace or ns
+        original_top_k = retriever.top_k
+        if req.top_k is not None:
+            retriever.top_k = req.top_k
+
+        try:
+            results = [
+                _evaluate_case(
+                    retriever=retriever,
+                    query=case.query,
+                    expected_documents=case.expected_documents,
+                    mission_filter=case.mission_filter,
+                    namespace=namespace,
+                )
+                for case in req.cases
+            ]
+        finally:
+            retriever.top_k = original_top_k
+
+        total_cases = len(results)
+        hit_count = sum(1 for result in results if result.hit)
+        return EvaluationResponse(
+            total_cases=total_cases,
+            hit_rate=round(hit_count / total_cases, 3),
+            mean_precision_at_k=round(
+                sum(result.precision_at_k for result in results) / total_cases,
+                3,
+            ),
+            mean_recall_at_k=round(
+                sum(result.recall_at_k for result in results) / total_cases,
+                3,
+            ),
+            mean_reciprocal_rank=round(
+                sum(result.reciprocal_rank for result in results) / total_cases,
+                3,
+            ),
+            cases=results,
         )
 
     # ── Ingest ────────────────────────────────────────────────────────────

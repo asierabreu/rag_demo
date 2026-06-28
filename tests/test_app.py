@@ -425,6 +425,86 @@ class TestChatEndpoint:
         assert kwargs.get("mission_name") == "PLATO"
 
 
+class TestDebugEndpoint:
+
+    def test_debug_chat_returns_trace_without_answer(self, client):
+        with patch(
+            "src.retrieval.retriever.Retriever.inspect_retrieval",
+            return_value={
+                "query": "What is the uplink rate?",
+                "mission_name": None,
+                "namespace": "test-ns",
+                "top_k": 3,
+                "score_threshold": 0.5,
+                "embedding_dimension": 1536,
+                "raw_chunks": _fake_chunks(2),
+                "chunks": _fake_chunks(1),
+                "raw_count": 2,
+                "filtered_count": 1,
+            },
+        ):
+            resp = client.post(
+                "/api/debug/chat",
+                json={
+                    "query": "What is the uplink rate?",
+                    "provider": "anthropic",
+                    "include_answer": False,
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] is None
+        assert data["chunks_retrieved"] == 1
+        assert data["raw_chunks"] == 2
+        assert "uplink rate" in data["prompt"]
+        assert len(data["sources"]) == 1
+
+
+class TestEvaluationEndpoint:
+
+    def test_evaluate_returns_retrieval_metrics(self, client):
+        def fake_inspect(query, mission_name=None, namespace="default"):
+            return {
+                "query": query,
+                "mission_name": mission_name,
+                "namespace": namespace,
+                "top_k": 3,
+                "score_threshold": 0.5,
+                "embedding_dimension": 1536,
+                "raw_chunks": _fake_chunks(2),
+                "chunks": _fake_chunks(2),
+                "raw_count": 2,
+                "filtered_count": 2,
+            }
+
+        with patch("src.retrieval.retriever.Retriever.inspect_retrieval", side_effect=fake_inspect):
+            resp = client.post(
+                "/api/evaluate",
+                json={
+                    "cases": [
+                        {
+                            "query": "What is the PLATO uplink rate?",
+                            "expected_documents": ["PLATO_MCS_ICD_v0.pdf"],
+                        },
+                        {
+                            "query": "What is the Gaia telemetry format?",
+                            "expected_documents": ["missing.pdf"],
+                        },
+                    ],
+                    "top_k": 2,
+                },
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_cases"] == 2
+        assert "hit_rate" in data
+        assert len(data["cases"]) == 2
+        assert data["cases"][0]["hit"] is True
+        assert data["cases"][1]["hit"] is False
+
+
 class TestIngestEndpoint:
 
     def test_ingest_csv(self, client):
